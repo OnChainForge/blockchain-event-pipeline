@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transaction Feed · Ethereum</title>
+  <style>
+:root {
+  --bg: #0b0d10;
+  --panel: #12161c;
+  --panel-border: #1f2530;
+  --panel-border-soft: #1a1f28;
+  --text: #e7ebee;
+  --muted: #838d99;
+  --muted-dim: #596270;
+
+  --accent: #37c98f;
+  --flag: #e0a940;
+  --fail: #e2574f;
+
+  --radius: 10px;
+  --radius-sm: 7px;
+
+  --font-body: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.stage {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 32px 20px;
+}
+
+.panel {
+  width: 100%;
+  max-width: 600px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 16px;
+}
+
+.status__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status.is-offline .status__dot {
+  background: var(--muted-dim);
+  animation: none;
+}
+
+.status.is-offline .status__left {
+  color: var(--fail);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.status__block {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.status__updated {
+  font-size: 12px;
+  color: var(--muted-dim);
+  flex-shrink: 0;
+}
+
+.feed {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.feed__empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--muted-dim);
+  font-size: 13px;
+  background: var(--panel);
+}
+
+.row {
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-border-soft);
+  padding: 14px 18px;
+  cursor: pointer;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row.is-flagged {
+  border-left: 2px solid var(--flag);
+}
+
+.row.is-new {
+  animation: arrive 1.6s ease-out;
+}
+
+@keyframes arrive {
+  0% { background: rgba(55, 201, 143, 0.14); }
+  100% { background: var(--panel); }
+}
+
+.row__main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.row__value-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.row__value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.row__badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 100px;
+  flex-shrink: 0;
+}
+
+.row__badge--flag {
+  background: rgba(224, 169, 64, 0.14);
+  color: var(--flag);
+}
+
+.row__badge--contract {
+  background: rgba(131, 141, 153, 0.14);
+  color: var(--muted);
+}
+
+.row__badge--fail {
+  background: rgba(226, 87, 79, 0.12);
+  color: var(--fail);
+}
+
+.row__block {
+  font-size: 12px;
+  color: var(--muted-dim);
+  flex-shrink: 0;
+}
+
+.row__addresses {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__arrow {
+  color: var(--muted-dim);
+  padding: 0 4px;
+}
+
+.row__details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border-soft);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 12px;
+}
+
+.row__details dt {
+  color: var(--muted-dim);
+}
+
+.row__details dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row__details dd a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.row__details dd a:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <div class="panel">
+
+      <div class="status" id="status">
+        <div class="status__left">
+          <span class="status__dot" id="status-dot"></span>
+          <span id="status-text">Connecting…</span>
+        </div>
+        <span class="status__updated" id="status-updated"></span>
+      </div>
+
+      <div class="feed" id="feed">
+        <p class="feed__empty" id="feed-empty">Waiting for the first blocks…</p>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+const API_BASE = "http://localhost:8001";
+const POLL_INTERVAL_MS = 8000;
+
+const el = {
+  statusRoot: document.getElementById("status"),
+  statusDot: document.getElementById("status-dot"),
+  statusText: document.getElementById("status-text"),
+  statusUpdated: document.getElementById("status-updated"),
+  feed: document.getElementById("feed"),
+  feedEmpty: document.getElementById("feed-empty"),
+};
+
+let lastUpdatedAt = null;
+const seenHashes = new Set();
+let latestBlock = null;
+
+function truncate(addr) {
+  if (!addr) return "Contract creation";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function formatEth(value) {
+  const n = Number(value);
+  return `${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} ETH`;
+}
+
+function timeAgo(date) {
+  if (!date) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+  if (seconds < 5) return "updated just now";
+  if (seconds < 60) return `updated ${seconds}s ago`;
+  return `updated ${Math.round(seconds / 60)}m ago`;
+}
+
+function renderStatus() {
+  if (latestBlock) {
+    el.statusText.innerHTML =
+      `Live — block <span class="status__block">#${latestBlock.block_number}</span> · ${latestBlock.tx_count} tx`;
+  }
+  el.statusUpdated.textContent = timeAgo(lastUpdatedAt);
+}
+
+function setOnline(isOnline) {
+  el.statusRoot.classList.toggle("is-offline", !isOnline);
+  if (!isOnline) {
+    el.statusText.textContent = "Disconnected — retrying…";
+  }
+}
+
+function buildRow(tx, isNew) {
+  const row = document.createElement("div");
+  row.className = "row";
+  if (tx.forwarded_to_risk_engine) row.classList.add("is-flagged");
+  if (isNew) row.classList.add("is-new");
+
+  const badges = [];
+  if (tx.forwarded_to_risk_engine) {
+    badges.push(`<span class="row__badge row__badge--flag">Flagged for review</span>`);
+  }
+  if (tx.is_contract_call) {
+    badges.push(`<span class="row__badge row__badge--contract">Contract</span>`);
+  }
+  if (tx.status === 0) {
+    badges.push(`<span class="row__badge row__badge--fail">Failed</span>`);
+  }
+
+  row.innerHTML = `
+    <div class="row__main">
+      <div class="row__value-line">
+        <span class="row__value">${formatEth(tx.value_eth)}</span>
+        ${badges.join("")}
+      </div>
+      <span class="row__block">Block #${tx.block_number}</span>
+    </div>
+    <div class="row__addresses">
+      ${truncate(tx.from_address)}<span class="row__arrow">→</span>${truncate(tx.to_address)}
+    </div>
+  `;
+
+  const details = document.createElement("dl");
+  details.className = "row__details";
+  details.hidden = true;
+
+  const etherscanLink = `<a href="https://etherscan.io/tx/${tx.tx_hash}" target="_blank" rel="noopener">${tx.tx_hash}</a>`;
+
+  const rows = [
+    ["Tx hash", etherscanLink, true],
+    ["Status", tx.status === 1 ? "Success" : tx.status === 0 ? "Failed" : "Unknown", false],
+    ["Gas used", tx.gas_used ?? "—", false],
+    ["Gas price", tx.gas_price_gwei != null ? `${tx.gas_price_gwei} gwei` : "—", false],
+    ["Recipient is a contract", tx.to_is_contract ? "Yes" : "No", false],
+    ["Sent to risk engine", tx.forwarded_to_risk_engine ? "Yes" : "No", false],
+  ];
+
+  rows.forEach(([label, value, isHtml]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    if (isHtml) {
+      dd.innerHTML = value;
+    } else {
+      dd.textContent = value;
+      dd.title = String(value);
+    }
+    details.append(dt, dd);
+  });
+
+  row.append(details);
+
+  row.addEventListener("click", (event) => {
+    if (event.target.tagName === "A") return; // let the link open normally
+    details.hidden = !details.hidden;
+  });
+
+  return row;
+}
+
+function renderFeed(transactions) {
+  el.feedEmpty.hidden = transactions.length > 0;
+  if (transactions.length === 0) return;
+
+  const fragment = document.createDocumentFragment();
+  transactions.forEach((tx) => {
+    const isNew = !seenHashes.has(tx.tx_hash);
+    seenHashes.add(tx.tx_hash);
+    fragment.append(buildRow(tx, isNew));
+  });
+
+  el.feed.innerHTML = "";
+  el.feed.append(el.feedEmpty, fragment);
+}
+
+async function poll() {
+  try {
+    const [blocksRes, txRes] = await Promise.all([
+      fetch(`${API_BASE}/blocks/`),
+      fetch(`${API_BASE}/transactions/`),
+    ]);
+
+    if (!blocksRes.ok || !txRes.ok) throw new Error("Bad response");
+
+    const blocks = await blocksRes.json();
+    const transactions = await txRes.json();
+
+    latestBlock = blocks[0] || latestBlock;
+    lastUpdatedAt = new Date();
+    setOnline(true);
+    renderFeed(transactions);
+    renderStatus();
+  } catch (err) {
+    setOnline(false);
+  }
+}
+
+poll();
+setInterval(poll, POLL_INTERVAL_MS);
+setInterval(() => {
+  el.statusUpdated.textContent = timeAgo(lastUpdatedAt);
+}, 1000);
+  </script>
+</body>
+</html>
