@@ -1,54 +1,38 @@
-# Blockchain Event Pipeline
+ cat > README.md << 'EOF'
+# Whale Alert
 
-A real-time Ethereum block listener that polls the network for new blocks, normalizes every transaction, stores them, and automatically forwards high-value transactions to a downstream risk engine.
+A real-time Ethereum transaction listener microservice that monitors raw blocks for high-value ETH transfers ("whales"), uses Redis to perform atomic deduplication, persists transaction history, and exposes a REST API for real-time feed consumption.
 
 ![Blockchain Event Pipeline screenshot](docs/screenshot.png)
 
-**Live demo:** _pending deployment_
+**Live demo:** _pending deployment_  
 **Video walkthrough:** _pending_
 
 ## Problem
 
-Raw blockchain data is not directly usable — you need something continuously watching new blocks, extracting the transactions inside them, and turning that raw data into structured records you can query, filter, and act on. Without this, every "what happened on-chain recently" question means manually re-scanning blocks from scratch.
+Scanning Ethereum mainnet blocks for massive transaction transfers generates high volumes of raw data. Without an efficient deduplication layer, background listeners risk persisting or broadcasting identical transaction events multiple times during re-scans or network delays.
 
 ## Solution
 
-A background listener task, running alongside a FastAPI service, that:
+A FastAPI microservice that:
 
-1. Polls for new blocks on a fixed interval
-2. Fetches full transaction data for each new block via RPC
-3. Normalizes every transaction into a flat record (value, gas, contract interaction flags, status)
-4. Persists it to a local database
-5. Forwards any transaction above a configurable ETH threshold to the [Risk Monitoring Engine](https://github.com/OnChainForge/risk-monitoring-engine) for rule evaluation
-6. Exposes everything it has seen via a simple REST API and a live-updating frontend feed
+1. Runs an asynchronous background polling task alongside the Web API
+2. Filters raw network transactions against a configurable ETH threshold
+3. Verifies transaction novelty using Redis key caching to eliminate duplicate events
+4. Persists verified whale transactions (`tx_hash`, `block_number`, `from_address`, `to_address`, `value_eth`, `detected_at`) in SQLite
+5. Exposes REST endpoints (`/health`, `/alerts/`) for frontend and client consumption
 
 ## Architecture
 
-Ethereum mainnet (Infura RPC)
-│
-▼
-background listener (polls every N seconds)
-│
-├──▶ normalize transactions
-│
-├──▶ SQLite (blocks, transactions)
-│
-└──▶ high-value tx? ──POST──▶ Risk Monitoring Engine (/events/)
-│
-▼
-FastAPI REST API (/blocks/, /transactions/)
-│
-▼
-Frontend live feed (polls every 8s)
-
-
-- **Backend**: FastAPI, SQLAlchemy, Pydantic, web3.py, httpx
-- **Database**: SQLite (WAL mode)
-- **Frontend**: Vanilla HTML/CSS/JS
+Ethereum Network (RPC)│▼Background Polling Loop (app/listener.py)│┌────┴────────────────────────┐▼                             ▼Redis Deduplication Check    SQLite Persistence (whale_alerts)(dedup_health_check)              │▼FastAPI REST API (/alerts/)│▼Frontend Client Feed
+- **Backend**: Python, FastAPI, SQLAlchemy, Pydantic v2
+- **Cache / Deduplication**: Redis
+- **Database**: SQLite
+- **Frontend**: Vanilla HTML/JS
 
 ## Stack
 
-Python · FastAPI · SQLAlchemy · web3.py · httpx · SQLite · Vanilla JS
+Python · FastAPI · SQLAlchemy · Pydantic · Redis · SQLite
 
 ## Running locally
 
@@ -56,39 +40,8 @@ Python · FastAPI · SQLAlchemy · web3.py · httpx · SQLite · Vanilla JS
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # fill in ETHEREUM_RPC_URL
-uvicorn app.main:app --reload --port 8001
-```
-
-Frontend:
-```bash
-cd frontend
-python3 -m http.server 5501
-```
-
-Open `http://localhost:5501`.
-
-**Note:** the [Risk Monitoring Engine](https://github.com/OnChainForge/risk-monitoring-engine) should also be running (on port 8000) for the forwarding step to succeed — without it, the listener still stores every transaction locally, it just logs a connection error on the forwarding attempt.
-
-## API
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Service health check |
-| `GET` | `/blocks/` | Last 20 processed blocks |
-| `GET` | `/transactions/` | Last 50 normalized transactions |
-
-## Technical decisions
-
-- **Worker-thread block processing**: block processing performs blocking RPC calls, which would freeze the FastAPI event loop if run directly inside the async listener. Each block is processed via `asyncio.to_thread`, keeping the API responsive even while a large block (300+ transactions) is being processed.
-- **Per-transaction commits + WAL mode**: early versions committed once per block, holding a write lock for the entire block's processing time and blocking API reads. Switched to committing after each transaction and enabling SQLite's WAL journal mode, so reads and writes can happen concurrently.
-- **Independent service, connected over HTTP**: this pipeline doesn't import or depend on the Risk Monitoring Engine's code — it calls it over HTTP, the same way any external consumer would. This keeps both services independently deployable and testable.
-
-## Challenges & learnings
-
-- Initial implementation froze on any read request (`GET /blocks/`) while a block was being processed. Root cause was two-fold: blocking RPC calls inside the async loop, and long-held SQLite write locks. Fixed with worker threads for RPC calls and WAL mode + granular commits for the database.
-- Learned to always verify a code change was actually saved and loaded (via `cat` on the file, or checking server reload logs) before assuming a fix didn't work — several debugging sessions were caused by edits that silently failed to persist.
-
-## License
-
-MIT
+cp .env.example .env  # fill in ETHEREUM_RPC_URL and REDIS_URL
+uvicorn app.main:app --reload --port 8002
+Frontend:Bashcd frontend
+python3 -m http.server 5502
+Open http://localhost:5502.APIMethodEndpointDescriptionGET/healthService health status and Redis connection verificationGET/alerts/Returns the 50 most recently detected whale transactionsTechnical decisionsPydantic v2 Object Relational Mapping: Configured ConfigDict(from_attributes=True) in response schemas (WhaleAlertOut) to seamlessly serialize SQLAlchemy model instances into JSON payloads.Atomic Indexing & Uniqueness: Explicitly indexed and constrained tx_hash at the database level (unique=True, index=True) alongside primary keys to enforce data integrity even under heavy ingestion.CORS Middleware Enablement: Standardized wildcards on origin access to decouple local static development servers from backend API services.Challenges & learningsHandled timezone awareness on record insertion by binding SQLAlchemy models to explicit UTC datetimes (datetime.now(timezone.utc)).Managed multi-service availability checks by validating Redis health status alongside standard application health endpoints.LicenseMITEOF
