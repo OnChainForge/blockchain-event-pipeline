@@ -1,4 +1,4 @@
- cat > README.md << 'EOF'
+ 
 # Whale Alert
 
 A real-time Ethereum transaction listener microservice that monitors raw blocks for high-value ETH transfers ("whales"), uses Redis to perform atomic deduplication, persists transaction history, and exposes a REST API for real-time feed consumption.
